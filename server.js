@@ -20,7 +20,7 @@ const db = mysql.createConnection({
   host: process.env.DB_HOST || 'mysql.railway.internal',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || 'nhTulsvlhvWViwVkCJrSpdJoINCGzAiJ',
-  database: process.env.DB_NAME || 'absensi_tamu',
+  database: process.env.DB_NAME || 'railway',
   port: process.env.DB_PORT || 3306
 });
 
@@ -164,5 +164,6 @@ app.get('/api/stats', authenticateToken, (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
