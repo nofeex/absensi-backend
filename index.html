@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Absensi Tamu Undangan</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {
+            .no-print { display: none; }
+            .print-only { display: block; }
+        }
+        .print-only { display: none; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    
+    <!-- Container Utama -->
+    <div id="app" class="p-4"></div>
+
+    <script>
+        // ============================================
+        // KONFIGURASI API
+        // ============================================
+        const API_URL = 'http://localhost:3000/api';
+        
+        // ============================================
+        // STATE MANAGEMENT
+        // ============================================
+        let state = {
+            isAdmin: false,
+            token: localStorage.getItem('adminToken') || '',
+            guests: [],
+            stats: { total: 0, withSignature: 0, today: 0 },
+            signature: '',
+            isDrawing: false
+        };
+
+        // ============================================
+        // API FUNCTIONS
+        // ============================================
+        async function apiCall(endpoint, method = 'GET', body = null, requireAuth = false) {
+            const headers = { 'Content-Type': 'application/json' };
+            
+            if (requireAuth && state.token) {
+                headers['Authorization'] = `Bearer ${state.token}`;
+            }
+
+            const options = { method, headers };
+            if (body) options.body = JSON.stringify(body);
+
+            try {
+                const response = await fetch(`${API_URL}${endpoint}`, options);
+                const data = await response.json();
+                
+                if (!response.ok) throw new Error(data.error || 'Terjadi kesalahan');
+                return data;
+            } catch (error) {
+                console.error('API Error:', error);
+                throw error;
+            }
+        }
+
+        async function loadGuests() {
+            try {
+                state.guests = await apiCall('/guests', 'GET', null, true);
+                render();
+            } catch (error) {
+                showMessage('error', 'Gagal memuat data: ' + error.message);
+            }
+        }
+
+        async function loadStats() {
+            try {
+                state.stats = await apiCall('/stats', 'GET', null, true);
+                render();
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        async function login(username, password) {
+            try {
+                const data = await apiCall('/admin/login', 'POST', { username, password });
+                state.token = data.token;
+                localStorage.setItem('adminToken', data.token);
+                state.isAdmin = true;
+                showMessage('success', 'Login berhasil!');
+                await loadGuests();
+                await loadStats();
+            } catch (error) {
+                showMessage('error', 'Login gagal: ' + error.message);
+            }
+        }
+
+        function logout() {
+            state.token = '';
+            state.isAdmin = false;
+            state.guests = [];
+            localStorage.removeItem('adminToken');
+            render();
+        }
+
+        async function submitGuest(nama, instansi, no_hp, signature) {
+            try {
+                await apiCall('/guests', 'POST', { nama, instansi, no_hp, signature });
+                showMessage('success', 'Terima kasih! Data Anda telah tersimpan.');
+                document.getElementById('guestForm').reset();
+                clearCanvas();
+            } catch (error) {
+                showMessage('error', 'Gagal menyimpan: ' + error.message);
+            }
+        }
+
+        async function deleteGuest(id) {
+            if (!confirm('Yakin ingin menghapus data ini?')) return;
+            
+            try {
+                await apiCall(`/guests/${id}`, 'DELETE', null, true);
+                showMessage('success', 'Data berhasil dihapus');
+                await loadGuests();
+                await loadStats();
+            } catch (error) {
+                showMessage('error', 'Gagal menghapus: ' + error.message);
+            }
+        }
+
+        // ============================================
+        // CANVAS SIGNATURE
+        // ============================================
+        function setupCanvas() {
+            const canvas = document.getElementById('signatureCanvas');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseleave', stopDrawing);
+            
+            // Touch events for mobile
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const mouseEvent = new MouseEvent('mousedown', {
+                    clientX: touch.clientX,
+                    clientY: touch.clientY
+                });
+                canvas.dispatchEvent(mouseEvent);
+            });
+            
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const mouseEvent = new MouseEvent('mousemove', {
+                    clientX: touch.clientX,
+                    clientY: touch.clientY
+                });
+                canvas.dispatchEvent(mouseEvent);
+            });
+            
+            canvas.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                const mouseEvent = new MouseEvent('mouseup', {});
+                canvas.dispatchEvent(mouseEvent);
+            });
+
+            function startDrawing(e) {
+                state.isDrawing = true;
+                const rect = canvas.getBoundingClientRect();
+                ctx.beginPath();
+                ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+            }
+
+            function draw(e) {
+                if (!state.isDrawing) return;
+                const rect = canvas.getBoundingClientRect();
+                ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+
+            function stopDrawing() {
+                if (state.isDrawing) {
+                    state.isDrawing = false;
+                    state.signature = canvas.toDataURL();
+                }
+            }
+        }
+
+        function clearCanvas() {
+            const canvas = document.getElementById('signatureCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            state.signature = '';
+        }
+
+        // ============================================
+        // UI HELPERS
+        // ============================================
+        function showMessage(type, text) {
+            const messageDiv = document.getElementById('messageBox');
+            const bgColor = type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
+            messageDiv.className = `mb-4 p-4 ${bgColor} rounded-lg`;
+            messageDiv.textContent = text;
+            messageDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                messageDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        // ============================================
+        // RENDER FUNCTIONS
+        // ============================================
+        function render() {
+            const app = document.getElementById('app');
+            
+            if (!state.isAdmin) {
+                app.innerHTML = renderGuestForm();
+                setTimeout(setupCanvas, 0);
+            } else if (!state.token) {
+                app.innerHTML = renderLoginForm();
+            } else {
+                app.innerHTML = renderAdminDashboard();
+            }
+        }
+
+        function renderGuestForm() {
+            return `
+                <div class="max-w-2xl mx-auto">
+                    <!-- Header -->
+                    <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+                        <div class="flex items-center justify-between">
+                            <h1 class="text-3xl font-bold text-gray-800">Absensi Tamu Undangan</h1>
+                            <button onclick="state.isAdmin = true; render();" class="text-indigo-600 hover:text-indigo-800 text-sm">
+                                Admin Login
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Form -->
+                    <div class="bg-white rounded-lg shadow-lg p-8">
+                        <h2 class="text-2xl font-semibold text-gray-800 mb-6 text-center">
+                            Silakan Isi Data Kehadiran
+                        </h2>
+                        
+                        <div id="messageBox" style="display:none;"></div>
+
+                        <form id="guestForm" onsubmit="handleGuestSubmit(event)" class="space-y-5">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Nama Lengkap *</label>
+                                <input type="text" id="nama" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-lg" placeholder="Masukkan nama lengkap">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Instansi/Perusahaan *</label>
+                                <input type="text" id="instansi" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-lg" placeholder="Masukkan nama instansi">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Nomor HP *</label>
+                                <input type="tel" id="no_hp" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-lg" placeholder="Contoh: 08123456789">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Tanda Tangan</label>
+                                <div class="border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50">
+                                    <p class="text-sm text-gray-500 mb-2">Gambar tanda tangan di area ini:</p>
+                                    <canvas id="signatureCanvas" width="600" height="180" class="w-full bg-white rounded border border-gray-200" style="touch-action: none;"></canvas>
+                                    <button type="button" onclick="clearCanvas()" class="mt-2 text-sm text-red-600 hover:text-red-700 font-medium">
+                                        Hapus Tanda Tangan
+                                    </button>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-4 rounded-lg font-semibold text-lg hover:bg-indigo-700 transition shadow-md">
+                                Kirim Data Kehadiran
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="mt-4 text-center text-sm text-gray-600">
+                        <p>API: ${API_URL}</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderLoginForm() {
+            return `
+                <div class="min-h-screen flex items-center justify-center">
+                    <div class="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
+                        <div class="text-center mb-6">
+                            <h2 class="text-2xl font-bold text-gray-800">Login Admin</h2>
+                            <p class="text-gray-600 mt-1">Masukkan kredensial Anda</p>
+                        </div>
+
+                        <div id="messageBox" style="display:none;"></div>
+
+                        <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                                <input type="text" id="username" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="admin">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                                <input type="password" id="password" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="••••••••">
+                            </div>
+
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition">
+                                Login
+                            </button>
+
+                            <button type="button" onclick="state.isAdmin = false; render();" class="w-full text-gray-600 hover:text-gray-800 text-sm">
+                                ← Kembali ke Form Tamu
+                            </button>
+                        </form>
+
+                        <div class="mt-6 p-3 bg-blue-50 rounded text-sm text-blue-800">
+                            <p class="font-medium">Pastikan backend API sudah berjalan di:</p>
+                            <p class="font-mono text-xs mt-1">${API_URL}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAdminDashboard() {
+            return `
+                <div class="max-w-7xl mx-auto">
+                    <!-- Header -->
+                    <div class="bg-white rounded-lg shadow-lg p-6 mb-6 no-print">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h1 class="text-3xl font-bold text-gray-800">Dashboard Admin</h1>
+                                <p class="text-sm text-gray-600">Kelola data kehadiran tamu</p>
+                            </div>
+                            <div class="flex gap-3">
+                                <button onclick="window.print()" class="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
+                                    🖨️ Cetak
+                                </button>
+                                <button onclick="logout()" class="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700">
+                                    🚪 Logout
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="messageBox" class="no-print" style="display:none;"></div>
+
+                    <!-- Statistik -->
+                    <div class="bg-white rounded-lg shadow-lg p-6 mb-6 no-print">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div class="p-4 bg-indigo-50 rounded-lg text-center">
+                                <p class="text-3xl font-bold text-indigo-600">${state.stats.total || 0}</p>
+                                <p class="text-sm text-gray-600">Total Tamu</p>
+                            </div>
+                            <div class="p-4 bg-green-50 rounded-lg text-center">
+                                <p class="text-3xl font-bold text-green-600">${state.stats.withSignature || 0}</p>
+                                <p class="text-sm text-gray-600">Dengan TTD</p>
+                            </div>
+                            <div class="p-4 bg-blue-50 rounded-lg text-center">
+                                <p class="text-3xl font-bold text-blue-600">${state.stats.today || 0}</p>
+                                <p class="text-sm text-gray-600">Hari Ini</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Daftar Tamu -->
+                    <div class="bg-white rounded-lg shadow-lg p-6">
+                        <div class="flex justify-between items-center mb-4 no-print">
+                            <h2 class="text-xl font-semibold text-gray-800">Daftar Kehadiran Tamu</h2>
+                            <button onclick="loadGuests(); loadStats();" class="text-sm text-indigo-600 hover:text-indigo-800">
+                                🔄 Refresh
+                            </button>
+                        </div>
+                        
+                        ${state.guests.length === 0 ? `
+                            <div class="text-center py-12">
+                                <p class="text-gray-500 text-lg">Belum ada data tamu</p>
+                            </div>
+                        ` : `
+                            <div class="overflow-x-auto">
+                                <table class="w-full">
+                                    <thead>
+                                        <tr class="border-b-2 border-gray-200">
+                                            <th class="text-left py-3 px-4 font-semibold text-gray-700">No</th>
+                                            <th class="text-left py-3 px-4 font-semibold text-gray-700">Nama</th>
+                                            <th class="text-left py-3 px-4 font-semibold text-gray-700">Instansi</th>
+                                            <th class="text-left py-3 px-4 font-semibold text-gray-700">No HP</th>
+                                            <th class="text-left py-3 px-4 font-semibold text-gray-700">Waktu</th>
+                                            <th class="text-left py-3 px-4 font-semibold text-gray-700">TTD</th>
+                                            <th class="text-center py-3 px-4 font-semibold text-gray-700 no-print">Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${state.guests.map((guest, index) => `
+                                            <tr class="border-b border-gray-100 hover:bg-gray-50">
+                                                <td class="py-3 px-4">${index + 1}</td>
+                                                <td class="py-3 px-4 font-medium">${guest.nama}</td>
+                                                <td class="py-3 px-4">${guest.instansi}</td>
+                                                <td class="py-3 px-4">${guest.no_hp}</td>
+                                                <td class="py-3 px-4 text-sm text-gray-600">${new Date(guest.created_at).toLocaleString('id-ID')}</td>
+                                                <td class="py-3 px-4">
+                                                    ${guest.signature ? `<img src="${guest.signature}" alt="TTD" class="h-12 border rounded">` : '<span class="text-gray-400 text-sm">-</span>'}
+                                                </td>
+                                                <td class="py-3 px-4 text-center no-print">
+                                                    <button onclick="deleteGuest(${guest.id})" class="text-red-500 hover:text-red-700">🗑️</button>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        `}
+                    </div>
+
+                    <!-- Print Version -->
+                    <div class="print-only mt-8">
+                        <div class="text-center mb-6">
+                            <h1 class="text-2xl font-bold">DAFTAR HADIR TAMU UNDANGAN</h1>
+                            <p class="text-sm text-gray-600 mt-2">Tanggal Cetak: ${new Date().toLocaleString('id-ID')}</p>
+                            <p class="text-sm text-gray-600">Total Tamu: ${state.guests.length}</p>
+                        </div>
+                        
+                        <table class="w-full border-collapse border border-gray-400">
+                            <thead>
+                                <tr class="bg-gray-100">
+                                    <th class="border border-gray-400 px-3 py-2 text-left">No</th>
+                                    <th class="border border-gray-400 px-3 py-2 text-left">Nama</th>
+                                    <th class="border border-gray-400 px-3 py-2 text-left">Instansi</th>
+                                    <th class="border border-gray-400 px-3 py-2 text-left">No HP</th>
+                                    <th class="border border-gray-400 px-3 py-2 text-left">Waktu</th>
+                                    <th class="border border-gray-400 px-3 py-2 text-center">TTD</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${state.guests.map((guest, index) => `
+                                    <tr>
+                                        <td class="border border-gray-400 px-3 py-2">${index + 1}</td>
+                                        <td class="border border-gray-400 px-3 py-2">${guest.nama}</td>
+                                        <td class="border border-gray-400 px-3 py-2">${guest.instansi}</td>
+                                        <td class="border border-gray-400 px-3 py-2">${guest.no_hp}</td>
+                                        <td class="border border-gray-400 px-3 py-2 text-sm">${new Date(guest.created_at).toLocaleString('id-ID')}</td>
+                                        <td class="border border-gray-400 px-3 py-2 text-center">
+                                            ${guest.signature ? `<img src="${guest.signature}" alt="TTD" class="h-12 mx-auto">` : ''}
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ============================================
+        // EVENT HANDLERS
+        // ============================================
+        function handleGuestSubmit(event) {
+            event.preventDefault();
+            const nama = document.getElementById('nama').value;
+            const instansi = document.getElementById('instansi').value;
+            const no_hp = document.getElementById('no_hp').value;
+            submitGuest(nama, instansi, no_hp, state.signature);
+        }
+
+        function handleLogin(event) {
+            event.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            login(username, password);
+        }
+
+        // ============================================
+        // INITIALIZE
+        // ============================================
+        if (state.token) {
+            state.isAdmin = true;
+            loadGuests();
+            loadStats();
+        }
+        
+        render();
+    </script>
+</body>
+</html>
