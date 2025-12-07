@@ -17,7 +17,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'rahasia-super-aman-123';
 
 // Database - dari environment variables
 const db = mysql.createConnection({
-  host: process.env.DB_HOST || 'mysql-production-4322.up.railway.app',
+  host: process.env.DB_HOST || 'mysql.railway.internal',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || 'nhTulsvlhvWViwVkCJrSpdJoINCGzAiJ',
   database: process.env.DB_NAME || 'railway',
@@ -164,6 +164,7 @@ app.get('/api/stats', authenticateToken, (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
