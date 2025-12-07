@@ -10,24 +10,27 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const app = express();
-const PORT = 3001;
-const JWT_SECRET = 'myscreetkeyis-nothing'; // Ganti dengan secret key Anda
 
-// Middleware
-app.use(cors({
-  origin: '*', // Atau ganti dengan 'http://localhost:3001'
-  credentials: true
-}));
-app.use(express.json({ limit: '10mb' })); // Untuk handle base64 signature
+// TAMBAHKAN: Environment variables
+const PORT = process.env.PORT || 3001;
+const JWT_SECRET = process.env.JWT_SECRET || 'rahasia-super-aman-123';
 
-// Koneksi MySQL
+// Database - dari environment variables
 const db = mysql.createConnection({
-  host: 'localhost',
-  user: 'u921668730_presensi',
-  password: 'PYr2B3EqHw+1', // Ganti dengan password MySQL Anda
-  database: 'u921668730_absensi_tamu'
+  host: process.env.DB_HOST || 'mysql.railway.internal',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || 'nhTulsvlhvWViwVkCJrSpdJoINCGzAiJ',
+  database: process.env.DB_NAME || 'absensi_tamu',
+  port: process.env.DB_PORT || 3306
 });
 
+// CORS - izinkan domain Hostinger
+app.use(cors({
+  origin: process.env.FRONTEND_URL || '*',
+  credentials: true
+}));
+
+app.use(express.json({ limit: '10mb' }));
 db.connect((err) => {
   if (err) {
     console.error('Error connecting to MySQL:', err);
@@ -161,3 +164,4 @@ app.get('/api/stats', authenticateToken, (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
